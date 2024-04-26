@@ -60,11 +60,72 @@
 #import "sdk/objc/native/api/audio_device_module.h"
 #endif
 
+#import "modules/audio_device/include/audio_device_data_observer.h"
+#include "rtc_base/logging.h"
+
+class MyAudioDeviceDataObserver : public webrtc::AudioDeviceDataObserver {
+ public:
+  MyAudioDeviceDataObserver(void *dataObserver) {
+    _objcDataObserver = dataObserver;
+  }
+
+  virtual void OnCaptureData(const void* audio_samples,
+                             size_t num_samples,
+                             size_t bytes_per_sample,
+                             size_t num_channels,
+                             uint32_t samples_per_sec) override
+  {
+    if (_objcDataObserver && audio_samples && num_samples > 0) {
+      id objcObject = (__bridge id)(_objcDataObserver);
+      if ([objcObject isKindOfClass:[RTCPeerConnectionFactory class]] == YES
+          && [objcObject respondsToSelector:@selector(onCaptureData:withSamples:bytesPerSample:channels:samplesPerSec:)])
+      {
+//        int dataLength = num_samples * bytes_per_sample;
+//        NSData *data = [NSData dataWithBytes:audio_samples length:sizeof(dataLength)];
+
+        RTCPeerConnectionFactory *factory = (RTCPeerConnectionFactory *)objcObject;
+        [factory onCaptureData:(const uint8_t *)audio_samples
+                   withSamples:num_samples
+                bytesPerSample:bytes_per_sample
+                      channels:num_channels
+                 samplesPerSec:samples_per_sec];
+      }
+    }
+  }
+
+  virtual void OnRenderData(const void* audio_samples,
+                            size_t num_samples,
+                            size_t bytes_per_sample,
+                            size_t num_channels,
+                            uint32_t samples_per_sec) override
+  {
+    if (_objcDataObserver && audio_samples && num_samples > 0) {
+      id objcObject = (__bridge id)(_objcDataObserver);
+      if ([objcObject isKindOfClass:[RTCPeerConnectionFactory class]] == YES
+          && [objcObject respondsToSelector:@selector(onRenderData:withSamples:bytesPerSample:channels:samplesPerSec:)])
+      {
+//        int dataLength = num_samples * bytes_per_sample;
+//        NSData *data = [NSData dataWithBytes:audio_samples length:sizeof(dataLength)];
+
+        RTCPeerConnectionFactory *factory = (RTCPeerConnectionFactory *)objcObject;
+        [factory onRenderData:(const uint8_t *)audio_samples
+                  withSamples:num_samples
+               bytesPerSample:bytes_per_sample
+                     channels:num_channels
+                samplesPerSec:samples_per_sec];
+      }
+    }
+  }
+ private:
+  void* _objcDataObserver;
+};
+
 @implementation RTC_OBJC_TYPE (RTCPeerConnectionFactory) {
   std::unique_ptr<rtc::Thread> _networkThread;
   std::unique_ptr<rtc::Thread> _workerThread;
   std::unique_ptr<rtc::Thread> _signalingThread;
   rtc::scoped_refptr<webrtc::AudioDeviceModule> _nativeAudioDeviceModule;
+  rtc::scoped_refptr<webrtc::AudioDeviceModule> _nativeAudioDeviceModule2;
   RTC_OBJC_TYPE(RTCDefaultAudioProcessingModule) *_defaultAudioProcessingModule;
 
   BOOL _hasStartedAecDump;
@@ -129,6 +190,44 @@
                            audioProcessingModule:nullptr
                            bypassVoiceProcessing:NO];
 #endif
+}
+
+- (void)onCaptureData:(const uint8_t *)data
+          withSamples:(int)numSamples
+       bytesPerSample:(int)bytesPerSample
+             channels:(int)numChannels
+        samplesPerSec:(int)samplesPerSec
+{
+//  NSLog(@"======== onCaptureData samples:%d, bytesPerSample:%d, channels=%d, samplesPerSec=%d",
+//        numSamples, bytesPerSample, numChannels, samplesPerSec);
+  if (self.audioDeviceDataDelegate != nil &&
+      [self respondsToSelector:@selector(onCaptureData:withSamples:bytesPerSample:channels:samplesPerSec:)])
+  {
+    [self.audioDeviceDataDelegate onCaptureData:(const uint8_t *)data
+                                    withSamples:numSamples
+                                 bytesPerSample:bytesPerSample
+                                       channels:numChannels
+                                  samplesPerSec:samplesPerSec];
+  }
+}
+
+- (void)onRenderData:(const uint8_t *)data
+         withSamples:(int)numSamples
+      bytesPerSample:(int)bytesPerSample
+            channels:(int)numChannels
+       samplesPerSec:(int)samplesPerSec
+{
+//  NSLog(@"======== onRenderData samples:%d, bytesPerSample:%d, channels=%d, samplesPerSec=%d",
+//        numSamples, bytesPerSample, numChannels, samplesPerSec);
+  if (self.audioDeviceDataDelegate != nil &&
+      [self respondsToSelector:@selector(onRenderData:withSamples:bytesPerSample:channels:samplesPerSec:)])
+  {
+    [self.audioDeviceDataDelegate onRenderData:(const uint8_t *)data
+                                   withSamples:numSamples
+                                bytesPerSample:bytesPerSample
+                                      channels:numChannels
+                                 samplesPerSec:samplesPerSec];
+  }
 }
 
 - (RTC_OBJC_TYPE(RTCRtpCapabilities) *)rtpSenderCapabilitiesFor:(RTCRtpMediaType)mediaType {
@@ -267,11 +366,17 @@
     cricket::MediaEngineDependencies media_deps;
 
     // always create ADM on worker thread
-    _nativeAudioDeviceModule = _workerThread->BlockingCall([&dependencies, &bypassVoiceProcessing]() {
+    _nativeAudioDeviceModule2 = _workerThread->BlockingCall([&dependencies, &bypassVoiceProcessing]() {
       return webrtc::AudioDeviceModule::Create(webrtc::AudioDeviceModule::AudioLayer::kPlatformDefaultAudio,
                                                dependencies.task_queue_factory.get(),
                                                bypassVoiceProcessing == YES);
 	  });
+
+    rtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_module2;
+    std::unique_ptr<webrtc::AudioDeviceDataObserver> dataObserver =
+        std::make_unique<MyAudioDeviceDataObserver>((__bridge void *)self);
+    NSLog(@"======== CreateAudioDeviceWithDataObserver, audio_device_module=%x", _nativeAudioDeviceModule.get());
+    _nativeAudioDeviceModule = CreateAudioDeviceWithDataObserver(_nativeAudioDeviceModule2, std::move(dataObserver));
 
     _audioDeviceModule =
         [[RTC_OBJC_TYPE(RTCAudioDeviceModule) alloc] initWithNativeModule:_nativeAudioDeviceModule

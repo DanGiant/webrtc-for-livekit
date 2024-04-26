@@ -42,6 +42,25 @@ typedef NS_ENUM(NSInteger, RTCRtpMediaType);
 (RTCAudioProcessingModule);
 
 RTC_OBJC_EXPORT
+@protocol RTCAudioDeviceDataDelegate <NSObject>
+
+@optional
+- (void)onCaptureData:(const uint8_t *)data
+          withSamples:(int)numSamples
+       bytesPerSample:(int)bytesPerSample
+             channels:(int)numChannels
+        samplesPerSec:(int)samplesPerSec;
+
+@optional
+- (void)onRenderData:(const uint8_t *)data
+         withSamples:(int)numSamples
+      bytesPerSample:(int)bytesPerSample
+            channels:(int)numChannels
+       samplesPerSec:(int)samplesPerSec;
+
+@end
+
+RTC_OBJC_EXPORT
 @interface RTC_OBJC_TYPE (RTCPeerConnectionFactory) : NSObject
 
 /* Initialize object with default H264 video encoder/decoder factories and default ADM */
@@ -67,6 +86,7 @@ RTC_OBJC_EXPORT
                 (nullable id<RTC_OBJC_TYPE(RTCAudioProcessingModule)>)audioProcessingModule;
 
 @property(nonatomic, readonly) RTC_OBJC_TYPE(RTCAudioDeviceModule) *audioDeviceModule;
+@property(nonatomic, weak) RTC_OBJC_TYPE(id<RTCAudioDeviceDataDelegate>) audioDeviceDataDelegate;
 
 - (RTC_OBJC_TYPE(RTCRtpCapabilities) *)rtpSenderCapabilitiesFor:(RTCRtpMediaType)mediaType;
 
@@ -128,6 +148,18 @@ RTC_OBJC_EXPORT
 
 /* Stop an active AecDump recording */
 - (void)stopAecDump;
+
+- (void)onCaptureData:(const uint8_t *)data
+          withSamples:(int)numSamples
+       bytesPerSample:(int)bytesPerSample
+             channels:(int)numChannels
+        samplesPerSec:(int)samplesPerSec;
+
+- (void)onRenderData:(const uint8_t *)data
+         withSamples:(int)numSamples
+      bytesPerSample:(int)bytesPerSample
+            channels:(int)numChannels
+       samplesPerSec:(int)samplesPerSec;
 
 @end
 
